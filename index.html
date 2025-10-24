@@ -167,37 +167,34 @@
         const initializeFirebase = async () => {
             if (IS_PERSISTENCE_ENABLED) {
                 try {
-                    setLogLevel('Debug'); // Good for development, consider removing/disabling for production
+                    // Temporarily remove setLogLevel('Debug') for a cleaner console,
+                    // or put it back if you need to debug specific Firebase SDK operations.
+                    // setLogLevel('Debug'); 
                     app = initializeApp(firebaseConfig);
                     db = getFirestore(app);
                     auth = getAuth(app);
-                    const analytics = getAnalytics(app); // Google Analytics is initialized here
+                    const analytics = getAnalytics(app); 
 
-                    // You might want to log a basic event to confirm Analytics is working, e.g.:
-                    // analytics.logEvent('app_initialized'); 
-
+                    // This ensures authentication completes before we proceed,
+                    // which is CRITICAL for rules like `request.auth != null`.
+                    let userCredential;
                     if (initialAuthToken) {
-                        await signInWithCustomToken(auth, initialAuthToken);
+                        userCredential = await signInWithCustomToken(auth, initialAuthToken);
                     } else {
-                        await signInAnonymously(auth); // Your app signs in anonymously
+                        userCredential = await signInAnonymously(auth);
                     }
-
-                    onAuthStateChanged(auth, (user) => {
-                        if (user) {
-                            userId = user.uid;
-                            setupRealtimeListeners(); 
-                        } else {
-                            fallbackToNonPersistentMode();
-                        }
-                    });
+                    userId = userCredential.user.uid; // Set userId immediately after successful sign-in
+                    setupRealtimeListeners(); // Start listeners only after auth and db are ready
 
                 } catch (error) {
                     console.error("Firebase initialization or initial sign-in failed:", error);
+                    // If Firebase fails, fall back to non-persistent mode
                     fallbackToNonPersistentMode(); 
                 }
             } else {
                 fallbackToNonPersistentMode();
             }
+            renderApp(); // Ensure app renders after initialization, persistent or not
         };
 
         const loadDefaultData = () => {
@@ -214,7 +211,9 @@
             }
             orders = JSON.parse(sessionStorage.getItem('sessionOrders')) || [];
         };
-
+        
+        // This function sets up real-time listeners for menu items and orders.
+        // It's called ONLY AFTER Firebase is successfully initialized and the user is authenticated.
         const setupRealtimeListeners = () => {
             // 1. Menu Items Listener
             const menuQ = query(getMenuCollection(), orderBy("name"));
@@ -233,7 +232,8 @@
             const ordersQ = query(getOrdersCollection(), orderBy("timestamp", "desc"), limit(20));
             onSnapshot(ordersQ, (snapshot) => {
                 orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                if (isAdmin) renderAdminDashboard();
+                // Only re-render admin dashboard if currently in admin mode
+                if (isAdmin) renderAdminDashboard(); 
             }, (error) => {
                 console.error("Error listening to orders:", error);
             });
@@ -447,7 +447,7 @@
                     quantity: item.quantity
                 })),
                 total: total,
-                userId: userId,
+                userId: userId, // Ensure userId is captured after auth
                 customerName: customerName, 
                 tableNumber: tableNumber,   
                 timestamp: IS_PERSISTENCE_ENABLED ? serverTimestamp() : new Date().toISOString(),
@@ -546,12 +546,12 @@
                     <!-- Menu Editor Panel (Left Column) -->
                     <div class="lg:col-span-1">
                         <div class="bg-white p-6 rounded-xl shadow-lg">
-                            <h3 class="text-2xl font-bold mb-4 phu-dark-text border-b phu-green-border pb-2">Menu Editor</h3>
+                            <h3 class="2xl font-bold mb-4 phu-dark-text border-b phu-green-border pb-2">Menu Editor</h3>
                             <div id="menu-editor">
                                 ${renderAdminMenuEditor()}
                             </div>
                             <div class="mt-8">
-                                <h4 class="text-xl font-semibold mb-3 phu-dark-text">Current Menu Items (${menuItems.length})</h4>
+                                <h4 class="xl font-semibold mb-3 phu-dark-text">Current Menu Items (${menuItems.length})</h4>
                                 <div class="space-y-3" id="admin-menu-list" style="max-height: 400px; overflow-y: auto;">
                                     ${renderAdminMenu()}
                                 </div>
@@ -562,7 +562,7 @@
                     <!-- Orders Panel (Right Columns) -->
                     <div class="lg:col-span-2">
                         <div class="bg-white p-6 rounded-xl shadow-lg">
-                            <h3 class="text-2xl font-bold mb-4 phu-dark-text border-b phu-green-border pb-2">Recent Orders (${orders.length})</h3>
+                            <h3 class="2xl font-bold mb-4 phu-dark-text border-b phu-green-border pb-2">Recent Orders (${orders.length})</h3>
                             <div id="orders-list" class="space-y-4 max-h-[80vh] overflow-y-auto">
                                 ${renderAdminOrders()}
                             </div>
@@ -583,7 +583,7 @@
 
             return `
                 <form id="menu-form" onsubmit="event.preventDefault(); saveMenuItem(event)" class="space-y-4 p-4 border phu-green-border rounded-lg phu-light-green-bg">
-                    <h4 class="text-xl font-bold phu-green-text">${editingItemId ? 'Editing Item: ' + item.name : 'Add New Menu Item'}</h4>
+                    <h4 class="xl font-bold phu-green-text">${editingItemId ? 'Editing Item: ' + item.name : 'Add New Menu Item'}</h4>
                     <div>
                         <label for="itemName" class="block text-sm font-medium phu-dark-text">Name</label>
                         <input type="text" id="itemName" value="${item.name}" required class="mt-1 w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-emerald-500 focus:border-emerald-500">
@@ -669,16 +669,16 @@
                 html += `
                     <div class="p-4 border border-gray-200 rounded-lg shadow-md bg-white">
                         <div class="flex justify-between items-center mb-2 border-b pb-2">
-                            <p class="text-lg font-bold phu-dark-text">Order Total: $${order.total.toFixed(2)}</p>
-                            <span class="text-sm font-medium px-3 py-1 rounded-full border ${statusClass}">${order.status || 'Pending'}</span>
+                            <p class="lg font-bold phu-dark-text">Order Total: $${order.total.toFixed(2)}</p>
+                            <span class="sm font-medium px-3 py-1 rounded-full border ${statusClass}">${order.status || 'Pending'}</span>
                         </div>
 
-                        <p class="text-base text-gray-800 font-semibold mb-1">
+                        <p class="base text-gray-800 font-semibold mb-1">
                             👤 ${order.customerName || 'N/A'} (Table: ${order.tableNumber || 'N/A'})
                         </p>
-                        <p class="text-xs text-gray-500 mb-3">Time: ${timeString}</p>
+                        <p class="xs text-gray-500 mb-3">Time: ${timeString}</p>
 
-                        <ul class="list-disc list-inside text-sm phu-dark-text mb-4 bg-gray-50 p-3 rounded-lg">
+                        <ul class="list-disc list-inside sm phu-dark-text mb-4 bg-gray-50 p-3 rounded-lg">
                             ${(order.items || []).map(item => `<li>${item.quantity}x ${item.name} ($${item.price})</li>`).join('')}
                         </ul>
 
@@ -686,19 +686,19 @@
                         <div class="flex space-x-2 justify-end">
                             ${order.status !== 'Approved' ? `
                                 <button onclick="updateOrderStatus('${order.id}', 'Approved')" 
-                                    class="flex items-center px-4 py-2 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 transition duration-150 text-sm">
+                                    class="flex items-center px-4 py-2 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 transition duration-150 sm">
                                     ✔ Approve
                                 </button>
                             ` : ''}
                             ${order.status !== 'Rejected' ? `
                                 <button onclick="updateOrderStatus('${order.id}', 'Rejected')" 
-                                    class="flex items-center px-4 py-2 bg-red-500 text-white font-semibold rounded-lg hover:bg-red-600 transition duration-150 text-sm">
+                                    class="flex items-center px-4 py-2 bg-red-500 text-white font-semibold rounded-lg hover:bg-red-600 transition duration-150 sm">
                                     ✖ Reject
                                 </button>
                             ` : ''}
                             ${(order.status === 'Approved' || order.status === 'Rejected') ? `
                                 <button onclick="updateOrderStatus('${order.id}', 'Pending')" 
-                                    class="flex items-center px-4 py-2 bg-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-400 transition duration-150 text-sm">
+                                    class="flex items-center px-4 py-2 bg-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-400 transition duration-150 sm">
                                     ⟲ Revert
                                 </button>
                             ` : ''}
@@ -745,14 +745,12 @@
                 return;
             }
 
-            // THIS IS THE CODE THAT INTERACTS WITH FIRESTORE
             if (IS_PERSISTENCE_ENABLED) {
                 try {
                     if (isEditing) {
                         const itemDocRef = doc(getMenuCollection(), editingItemId);
                         await setDoc(itemDocRef, itemData, { merge: true });
                     } else {
-                        // This line is attempting to add a new document
                         await addDoc(getMenuCollection(), itemData);
                     }
                     
@@ -809,7 +807,7 @@
             }
 
             modalContent.innerHTML = `
-                <h3 class="2xl font-bold mb-3 phu-dark-text">${title}</h3>
+                <h3 class="text-2xl font-bold mb-3 phu-dark-text">${title}</h3>
                 <div class="text-gray-700">${bodyHtml}</div>
                 ${footerHtml}
             `;
