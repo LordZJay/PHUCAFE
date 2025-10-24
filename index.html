@@ -87,30 +87,30 @@
 
     <!-- Firebase and App Logic -->
     <script type="module">
+        // Import the functions you need from the SDKs you need
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, addDoc, setDoc, deleteDoc, onSnapshot, collection, query, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js"; 
         
         // --- MANDATORY GLOBAL VARIABLES (PROVIDED BY CANVAS) ---
-        // For development, replace placeholder values with your actual Firebase project configuration from the Firebase Console.
-        // Go to Project Settings -> Your apps -> Web app -> Config.
+        // Your web app's Firebase configuration - THIS IS CORRECT!
         const firebaseConfig = {
-            apiKey: "YOUR_WEB_API_KEY", // <--- REPLACE THIS WITH YOUR ACTUAL API KEY FROM YOUR FIREBASE WEB APP CONFIG
+            apiKey: "AIzaSyDeSj66z4eXOaS-8AoLSizt141zbszmQzg",
             authDomain: "phucafe-1e238.firebaseapp.com",
             projectId: "phucafe-1e238",
             storageBucket: "phucafe-1e238.appspot.com",
             messagingSenderId: "861905109853",
-            appId: "YOUR_WEB_APP_ID" // <--- REPLACE THIS WITH YOUR ACTUAL APP ID FROM YOUR FIREBASE WEB APP CONFIG
-            // measurementId: "G-XXXXXXXXXX" // If you enabled Google Analytics for Firebase, you can add this too.
+            appId: "1:861905109853:web:207d6e58b92c20db4c1eb4",
+            measurementId: "G-98KHVNL0F5" 
         };
 
-        const appId = firebaseConfig.appId; // Now using the appId directly from the config
-        const initialAuthToken = null; // Assuming no custom token provided for this scenario.
+        const appId = firebaseConfig.appId; 
+        const initialAuthToken = null; 
         
         // --- APP CONFIGURATION ---
         const ADMIN_PASSWORD = 'ADMIN123'; 
-        // IS_PERSISTENCE_ENABLED will now be true if firebaseConfig is valid.
         const IS_PERSISTENCE_ENABLED = firebaseConfig && firebaseConfig.apiKey && firebaseConfig.appId; 
         
         // --- IMAGE FALLBACK UTILITY ---
@@ -133,7 +133,6 @@
         // --- FIRESTORE HELPERS ---
         
         const getCollectionPath = (collectionName) => {
-            // Public data for shared menu and orders
             return `artifacts/${appId}/public/data/${collectionName}`;
         };
 
@@ -168,15 +167,19 @@
         const initializeFirebase = async () => {
             if (IS_PERSISTENCE_ENABLED) {
                 try {
-                    setLogLevel('Debug');
+                    setLogLevel('Debug'); // Good for development, consider removing/disabling for production
                     app = initializeApp(firebaseConfig);
                     db = getFirestore(app);
                     auth = getAuth(app);
+                    const analytics = getAnalytics(app); // Google Analytics is initialized here
+
+                    // You might want to log a basic event to confirm Analytics is working, e.g.:
+                    // analytics.logEvent('app_initialized'); 
 
                     if (initialAuthToken) {
                         await signInWithCustomToken(auth, initialAuthToken);
                     } else {
-                        await signInAnonymously(auth);
+                        await signInAnonymously(auth); // Your app signs in anonymously
                     }
 
                     onAuthStateChanged(auth, (user) => {
@@ -732,7 +735,7 @@
             const priceFloat = parseFloat(document.getElementById('itemPrice').value);
             const price = priceFloat.toFixed(2); 
             const category = document.getElementById('itemCategory').value;
-            const imageUrl = document.getElementById('itemImageUrl').value.trim(); // New Image Field
+            const imageUrl = document.getElementById('itemImageUrl').value.trim(); 
             
             const itemData = { name, price: price, category, imageUrl }; 
             const isEditing = editingItemId !== null;
@@ -742,12 +745,14 @@
                 return;
             }
 
+            // THIS IS THE CODE THAT INTERACTS WITH FIRESTORE
             if (IS_PERSISTENCE_ENABLED) {
                 try {
                     if (isEditing) {
                         const itemDocRef = doc(getMenuCollection(), editingItemId);
                         await setDoc(itemDocRef, itemData, { merge: true });
                     } else {
+                        // This line is attempting to add a new document
                         await addDoc(getMenuCollection(), itemData);
                     }
                     
@@ -804,7 +809,7 @@
             }
 
             modalContent.innerHTML = `
-                <h3 class="text-2xl font-bold mb-3 phu-dark-text">${title}</h3>
+                <h3 class="2xl font-bold mb-3 phu-dark-text">${title}</h3>
                 <div class="text-gray-700">${bodyHtml}</div>
                 ${footerHtml}
             `;
