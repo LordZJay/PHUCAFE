@@ -89,7 +89,7 @@
     <script type="module">
         // Import the functions you need from the SDKs you need
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js"; // Removed signInWithCustomToken as it's unused
         import { getFirestore, doc, addDoc, setDoc, deleteDoc, onSnapshot, collection, query, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js"; 
@@ -107,7 +107,7 @@
         };
 
         const appId = firebaseConfig.appId; 
-        const initialAuthToken = null; 
+        // const initialAuthToken = null; // No longer needed in this pattern
         
         // --- APP CONFIGURATION ---
         const ADMIN_PASSWORD = 'ADMIN123'; 
@@ -123,7 +123,7 @@
         let app = null;
         let db = null;
         let auth = null;
-        let userId = null;
+        let userId = null; // Will be set by onAuthStateChanged
         let menuItems = [];
         let orders = [];
         let userCart = JSON.parse(localStorage.getItem('userCart')) || {};
@@ -144,7 +144,7 @@
         const fallbackToNonPersistentMode = () => {
             userId = crypto.randomUUID(); 
             loadDefaultData();
-            renderApp(); 
+            // renderApp(); // Will be called by initializeFirebase's catch block
             updateStatusMessage();
         };
 
@@ -163,39 +163,49 @@
             }
         };
 
-
+        // REVISED initializeFirebase to ensure userId is reliably set via onAuthStateChanged
         const initializeFirebase = async () => {
             if (IS_PERSISTENCE_ENABLED) {
                 try {
-                    // Temporarily remove setLogLevel('Debug') for a cleaner console,
-                    // or put it back if you need to debug specific Firebase SDK operations.
-                    // setLogLevel('Debug'); 
+                    // setLogLevel('Debug'); // Uncomment if you need detailed Firebase SDK logs
                     app = initializeApp(firebaseConfig);
                     db = getFirestore(app);
                     auth = getAuth(app);
                     const analytics = getAnalytics(app); 
 
-                    // This ensures authentication completes before we proceed,
-                    // which is CRITICAL for rules like `request.auth != null`.
-                    let userCredential;
-                    if (initialAuthToken) {
-                        userCredential = await signInWithCustomToken(auth, initialAuthToken);
-                    } else {
-                        userCredential = await signInAnonymously(auth);
-                    }
-                    userId = userCredential.user.uid; // Set userId immediately after successful sign-in
-                    setupRealtimeListeners(); // Start listeners only after auth and db are ready
+                    // This is the primary way to manage user state and trigger app logic
+                    onAuthStateChanged(auth, async (user) => {
+                        if (user) {
+                            // User successfully authenticated (either initially, or after anonymous signIn)
+                            userId = user.uid; // Set userId here
+                            console.log("Firebase Auth: User signed in with UID:", userId); // Debug line
+                            setupRealtimeListeners(); // Start Firestore listeners after user is confirmed
+                            renderApp(); // Render UI for authenticated state
+                        } else {
+                            // No user currently authenticated. Attempt to sign in anonymously.
+                            console.log("Firebase Auth: No user found, attempting anonymous sign-in."); // Debug line
+                            try {
+                                await signInAnonymously(auth); // This will trigger onAuthStateChanged again with a 'user'
+                            } catch (anonError) {
+                                console.error("Anonymous sign-in failed during onAuthStateChanged:", anonError);
+                                // If anonymous sign-in fails, then fall back to non-persistent mode
+                                fallbackToNonPersistentMode();
+                                renderApp(); // Render UI for non-persistent state
+                            }
+                        }
+                    });
 
                 } catch (error) {
-                    console.error("Firebase initialization or initial sign-in failed:", error);
-                    // If Firebase fails, fall back to non-persistent mode
+                    console.error("Firebase initialization failed:", error);
                     fallbackToNonPersistentMode(); 
+                    renderApp(); // Render UI for non-persistent state even if Firebase init fails
                 }
             } else {
                 fallbackToNonPersistentMode();
+                renderApp(); // Render UI for non-persistent state
             }
-            renderApp(); // Ensure app renders after initialization, persistent or not
         };
+
 
         const loadDefaultData = () => {
             if (menuItems.length === 0) { 
@@ -317,7 +327,7 @@
 
             let html = '';
             for (const category in categories) {
-                html += `<h3 class="text-2xl font-semibold mt-6 mb-3 phu-dark-text">${category}</h3>`;
+                html += `<h3 class="text-3xl font-semibold mt-6 mb-3 phu-dark-text">${category}</h3>`; // Adjusted from 2xl
                 categories[category].forEach(item => {
                     const imageUrl = item.imageUrl && item.imageUrl.trim() !== '' ? item.imageUrl : getPlaceholderImageUrl(item.name);
                     
@@ -454,6 +464,25 @@
                 status: 'Pending'
             };
 
+            // This ensures userId is available when trying to place the order.
+            if (!userId && IS_PERSISTENCE_ENABLED) {
+                console.error("Attempted to place order before user ID was available. Re-attempting sign-in.");
+                try {
+                    // Try to sign in anonymously again if userId is null, then re-call placeOrder
+                    await signInAnonymously(auth);
+                    // After sign-in, userId will be updated by onAuthStateChanged,
+                    // and onAuthStateChanged will call renderApp which refreshes state.
+                    // Instead of re-calling placeOrder directly, let the user re-click.
+                    showModal('Authentication Issue', 'Please try placing your order again. An authentication problem was resolved.', 'Okay');
+                    return;
+                } catch (error) {
+                    console.error("Failed to re-authenticate for order:", error);
+                    showModal('Error', 'Authentication failed. Please refresh the page and try again.', 'Close');
+                    return;
+                }
+            }
+
+
             if (IS_PERSISTENCE_ENABLED) {
                 try {
                     await addDoc(getOrdersCollection(), orderData);
@@ -546,12 +575,12 @@
                     <!-- Menu Editor Panel (Left Column) -->
                     <div class="lg:col-span-1">
                         <div class="bg-white p-6 rounded-xl shadow-lg">
-                            <h3 class="2xl font-bold mb-4 phu-dark-text border-b phu-green-border pb-2">Menu Editor</h3>
+                            <h3 class="text-2xl font-bold mb-4 phu-dark-text border-b phu-green-border pb-2">Menu Editor</h3>
                             <div id="menu-editor">
                                 ${renderAdminMenuEditor()}
                             </div>
                             <div class="mt-8">
-                                <h4 class="xl font-semibold mb-3 phu-dark-text">Current Menu Items (${menuItems.length})</h4>
+                                <h4 class="text-xl font-semibold mb-3 phu-dark-text">Current Menu Items (${menuItems.length})</h4>
                                 <div class="space-y-3" id="admin-menu-list" style="max-height: 400px; overflow-y: auto;">
                                     ${renderAdminMenu()}
                                 </div>
@@ -562,7 +591,7 @@
                     <!-- Orders Panel (Right Columns) -->
                     <div class="lg:col-span-2">
                         <div class="bg-white p-6 rounded-xl shadow-lg">
-                            <h3 class="2xl font-bold mb-4 phu-dark-text border-b phu-green-border pb-2">Recent Orders (${orders.length})</h3>
+                            <h3 class="text-2xl font-bold mb-4 phu-dark-text border-b phu-green-border pb-2">Recent Orders (${orders.length})</h3>
                             <div id="orders-list" class="space-y-4 max-h-[80vh] overflow-y-auto">
                                 ${renderAdminOrders()}
                             </div>
@@ -583,7 +612,7 @@
 
             return `
                 <form id="menu-form" onsubmit="event.preventDefault(); saveMenuItem(event)" class="space-y-4 p-4 border phu-green-border rounded-lg phu-light-green-bg">
-                    <h4 class="xl font-bold phu-green-text">${editingItemId ? 'Editing Item: ' + item.name : 'Add New Menu Item'}</h4>
+                    <h4 class="text-xl font-bold phu-green-text">${editingItemId ? 'Editing Item: ' + item.name : 'Add New Menu Item'}</h4>
                     <div>
                         <label for="itemName" class="block text-sm font-medium phu-dark-text">Name</label>
                         <input type="text" id="itemName" value="${item.name}" required class="mt-1 w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-emerald-500 focus:border-emerald-500">
@@ -669,16 +698,16 @@
                 html += `
                     <div class="p-4 border border-gray-200 rounded-lg shadow-md bg-white">
                         <div class="flex justify-between items-center mb-2 border-b pb-2">
-                            <p class="lg font-bold phu-dark-text">Order Total: $${order.total.toFixed(2)}</p>
-                            <span class="sm font-medium px-3 py-1 rounded-full border ${statusClass}">${order.status || 'Pending'}</span>
+                            <p class="text-lg font-bold phu-dark-text">Order Total: $${order.total.toFixed(2)}</p>
+                            <span class="text-sm font-medium px-3 py-1 rounded-full border ${statusClass}">${order.status || 'Pending'}</span>
                         </div>
 
-                        <p class="base text-gray-800 font-semibold mb-1">
+                        <p class="text-base text-gray-800 font-semibold mb-1">
                             👤 ${order.customerName || 'N/A'} (Table: ${order.tableNumber || 'N/A'})
                         </p>
-                        <p class="xs text-gray-500 mb-3">Time: ${timeString}</p>
+                        <p class="text-xs text-gray-500 mb-3">Time: ${timeString}</p>
 
-                        <ul class="list-disc list-inside sm phu-dark-text mb-4 bg-gray-50 p-3 rounded-lg">
+                        <ul class="list-disc list-inside text-sm phu-dark-text mb-4 bg-gray-50 p-3 rounded-lg">
                             ${(order.items || []).map(item => `<li>${item.quantity}x ${item.name} ($${item.price})</li>`).join('')}
                         </ul>
 
@@ -686,19 +715,19 @@
                         <div class="flex space-x-2 justify-end">
                             ${order.status !== 'Approved' ? `
                                 <button onclick="updateOrderStatus('${order.id}', 'Approved')" 
-                                    class="flex items-center px-4 py-2 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 transition duration-150 sm">
+                                    class="flex items-center px-4 py-2 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 transition duration-150 text-sm">
                                     ✔ Approve
                                 </button>
                             ` : ''}
                             ${order.status !== 'Rejected' ? `
                                 <button onclick="updateOrderStatus('${order.id}', 'Rejected')" 
-                                    class="flex items-center px-4 py-2 bg-red-500 text-white font-semibold rounded-lg hover:bg-red-600 transition duration-150 sm">
+                                    class="flex items-center px-4 py-2 bg-red-500 text-white font-semibold rounded-lg hover:bg-red-600 transition duration-150 text-sm">
                                     ✖ Reject
                                 </button>
                             ` : ''}
                             ${(order.status === 'Approved' || order.status === 'Rejected') ? `
                                 <button onclick="updateOrderStatus('${order.id}', 'Pending')" 
-                                    class="flex items-center px-4 py-2 bg-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-400 transition duration-150 sm">
+                                    class="flex items-center px-4 py-2 bg-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-400 transition duration-150 text-sm">
                                     ⟲ Revert
                                 </button>
                             ` : ''}
