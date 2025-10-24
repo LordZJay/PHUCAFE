@@ -93,13 +93,25 @@
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
         // --- MANDATORY GLOBAL VARIABLES (PROVIDED BY CANVAS) ---
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        // For development, replace placeholder values with your actual Firebase project configuration from the Firebase Console.
+        // Go to Project Settings -> Your apps -> Web app -> Config.
+        const firebaseConfig = {
+            apiKey: "YOUR_WEB_API_KEY", // <--- REPLACE THIS WITH YOUR ACTUAL API KEY FROM YOUR FIREBASE WEB APP CONFIG
+            authDomain: "phucafe-1e238.firebaseapp.com",
+            projectId: "phucafe-1e238",
+            storageBucket: "phucafe-1e238.appspot.com",
+            messagingSenderId: "861905109853",
+            appId: "YOUR_WEB_APP_ID" // <--- REPLACE THIS WITH YOUR ACTUAL APP ID FROM YOUR FIREBASE WEB APP CONFIG
+            // measurementId: "G-XXXXXXXXXX" // If you enabled Google Analytics for Firebase, you can add this too.
+        };
+
+        const appId = firebaseConfig.appId; // Now using the appId directly from the config
+        const initialAuthToken = null; // Assuming no custom token provided for this scenario.
         
         // --- APP CONFIGURATION ---
         const ADMIN_PASSWORD = 'ADMIN123'; 
-        const IS_PERSISTENCE_ENABLED = firebaseConfig !== null && Object.keys(firebaseConfig).length > 0; 
+        // IS_PERSISTENCE_ENABLED will now be true if firebaseConfig is valid.
+        const IS_PERSISTENCE_ENABLED = firebaseConfig && firebaseConfig.apiKey && firebaseConfig.appId; 
         
         // --- IMAGE FALLBACK UTILITY ---
         const getPlaceholderImageUrl = (itemName) => {
