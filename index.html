@@ -89,7 +89,7 @@
     <script type="module">
         // Import the functions you need from the SDKs you need
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js"; // Removed signInWithCustomToken as it's unused
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js"; 
         import { getFirestore, doc, addDoc, setDoc, deleteDoc, onSnapshot, collection, query, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js"; 
@@ -107,7 +107,6 @@
         };
 
         const appId = firebaseConfig.appId; 
-        // const initialAuthToken = null; // No longer needed in this pattern
         
         // --- APP CONFIGURATION ---
         const ADMIN_PASSWORD = 'ADMIN123'; 
@@ -124,8 +123,8 @@
         let db = null;
         let auth = null;
         let userId = null; // Will be set by onAuthStateChanged
-        let menuItems = [];
-        let orders = [];
+        let menuItems = []; // Populated by Firestore listener
+        let orders = []; // Populated by Firestore listener
         let userCart = JSON.parse(localStorage.getItem('userCart')) || {};
         let isAdmin = false;
         let editingItemId = null; 
@@ -144,7 +143,6 @@
         const fallbackToNonPersistentMode = () => {
             userId = crypto.randomUUID(); 
             loadDefaultData();
-            // renderApp(); // Will be called by initializeFirebase's catch block
             updateStatusMessage();
         };
 
@@ -167,7 +165,6 @@
         const initializeFirebase = async () => {
             if (IS_PERSISTENCE_ENABLED) {
                 try {
-                    // setLogLevel('Debug'); // Uncomment if you need detailed Firebase SDK logs
                     app = initializeApp(firebaseConfig);
                     db = getFirestore(app);
                     auth = getAuth(app);
@@ -293,8 +290,8 @@
                                            class="w-full p-2 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500" value="${localStorage.getItem('customerName') || ''}">
                                 </div>
                                 <div>
-                                    <label for="tableNumber" class="block text-sm font-medium phu-dark-text">Table Number & Description</label>
-                                    <input type="text" id="tableNumber , Description" placeholder="e.g., T4 or Bar , Description" required
+                                    <label for="tableNumber" class="block text-sm font-medium phu-dark-text">Table Number</label>
+                                    <input type="text" id="tableNumber" placeholder="e.g., T4 or Bar" required
                                            class="w-full p-2 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500" value="${localStorage.getItem('tableNumber') || ''}">
                                 </div>
                             </div>
@@ -327,14 +324,14 @@
 
             let html = '';
             for (const category in categories) {
-                html += `<h3 class="text-3xl font-semibold mt-6 mb-3 phu-dark-text">${category}</h3>`; // Adjusted from 2xl
+                html += `<h3 class="text-3xl font-semibold mt-6 mb-3 phu-dark-text">${category}</h3>`; 
                 categories[category].forEach(item => {
                     const imageUrl = item.imageUrl && item.imageUrl.trim() !== '' ? item.imageUrl : getPlaceholderImageUrl(item.name);
                     
                     html += `
                         <div class="menu-item flex justify-between items-center p-4 bg-white border border-gray-200 rounded-lg shadow-sm">
-                            
-                            <div class="flex items-center space-x-4">
+                            <!-- Clickable area for image popup -->
+                            <div class="flex items-center space-x-4 cursor-pointer" onclick="showItemImage('${item.name.replace(/'/g, "\\'")}', '${imageUrl.replace(/'/g, "\\'")}')">
                                 <!-- Item Image with Fallback -->
                                 <img src="${imageUrl}" 
                                     onerror="this.onerror=null; this.src='${getPlaceholderImageUrl('No Image')}'; this.style.border='1px solid #9ca3af';"
@@ -450,12 +447,18 @@
 
             const total = calculateCartTotal();
             const orderData = {
-                items: Object.values(userCart).map(item => ({
-                    id: item.id,
-                    name: item.name,
-                    price: parseFloat(item.price).toFixed(2),
-                    quantity: item.quantity
-                })),
+                items: Object.values(userCart).map(cartItem => { // Map cart items to order items
+                    const fullMenuItem = menuItems.find(menuItem => menuItem.id === cartItem.id); // Find full menu item details
+                    const imageUrl = fullMenuItem ? fullMenuItem.imageUrl : getPlaceholderImageUrl(cartItem.name); // Get image URL or placeholder
+
+                    return {
+                        id: cartItem.id,
+                        name: cartItem.name,
+                        price: parseFloat(cartItem.price).toFixed(2),
+                        quantity: cartItem.quantity,
+                        imageUrl: imageUrl // <--- ADDED imageUrl to each item in the order
+                    };
+                }),
                 total: total,
                 userId: userId, // Ensure userId is captured after auth
                 customerName: customerName, 
@@ -468,11 +471,7 @@
             if (!userId && IS_PERSISTENCE_ENABLED) {
                 console.error("Attempted to place order before user ID was available. Re-attempting sign-in.");
                 try {
-                    // Try to sign in anonymously again if userId is null, then re-call placeOrder
-                    await signInAnonymously(auth);
-                    // After sign-in, userId will be updated by onAuthStateChanged,
-                    // and onAuthStateChanged will call renderApp which refreshes state.
-                    // Instead of re-calling placeOrder directly, let the user re-click.
+                    await signInAnonymously(auth); // Try to sign in anonymously again if userId is null
                     showModal('Authentication Issue', 'Please try placing your order again. An authentication problem was resolved.', 'Okay');
                     return;
                 } catch (error) {
@@ -708,7 +707,20 @@
                         <p class="text-xs text-gray-500 mb-3">Time: ${timeString}</p>
 
                         <ul class="list-disc list-inside text-sm phu-dark-text mb-4 bg-gray-50 p-3 rounded-lg">
-                            ${(order.items || []).map(item => `<li>${item.quantity}x ${item.name} ($${item.price})</li>`).join('')}
+                            ${(order.items || []).map(item => {
+                                // Fallback for old orders that don't have imageUrl saved
+                                const imageUrl = item.imageUrl && item.imageUrl.trim() !== '' ? item.imageUrl : getPlaceholderImageUrl(item.name);
+                                return `
+                                    <li class="flex items-center space-x-2">
+                                        <img src="${imageUrl}" 
+                                            onerror="this.onerror=null; this.src='${getPlaceholderImageUrl('No Pic')}'"
+                                            alt="${item.name}" 
+                                            class="w-8 h-8 object-cover rounded-full border border-gray-300"
+                                        />
+                                        <span>${item.quantity}x ${item.name} ($${item.price})</span>
+                                    </li>
+                                `;
+                            }).join('')}
                         </ul>
 
                         <!-- Action Buttons -->
@@ -848,6 +860,19 @@
             const modalContainer = document.getElementById('modal-container');
             modalContainer.classList.remove('flex');
             modalContainer.classList.add('hidden');
+        };
+
+        // --- NEW: SHOW ITEM IMAGE MODAL ---
+        window.showItemImage = (itemName, imageUrl) => {
+            // Use the placeholder function if imageUrl is empty or invalid
+            const finalImageUrl = imageUrl && imageUrl.trim() !== '' ? imageUrl : getPlaceholderImageUrl(itemName);
+            
+            // Show the image in a modal
+            showModal(
+                itemName, // Title of the modal will be the item name
+                `<img src="${finalImageUrl}" alt="${itemName}" class="w-full h-auto object-contain rounded-lg max-h-[70vh]">`, // Image in the body
+                'Close' // Button text
+            );
         };
 
         // --- ENTRY POINT ---
